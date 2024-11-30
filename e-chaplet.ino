@@ -46,6 +46,31 @@
 
 #define RF_CONFIG_TIMEOUT_MS                        5000UL
 
+/* Address to store RF OP codes in EEPROM */
+
+#define RF_OP_CODES_ADDR                            128
+
+/* Pin used to drive the LED strip is PIN D6 */
+
+#define LED_PIN                                     6
+
+/* The chaplet's LED strip is composed of 61 LEDs */
+
+#define NUM_LEDS                                    61
+
+/* Initial brightness scale */
+
+#define BRIGHTNESS                                  64
+
+/* Used controller is WS2811 */
+
+#define LED_TYPE                                    WS2811
+
+/* The order of the RGB color code used by the controller */
+
+#define COLOR_ORDER                                 GRB
+
+
 enum AppState {
     APP_STATE_CHAPLET,
     APP_STATE_RF_CALIBRATION,
@@ -62,8 +87,8 @@ struct RfOpCodes
 /*****************************************************************************
  * Private Function Prototypes                                               *
  *****************************************************************************/
-
-static void checkForRfCalibration();
+static void saveRfCodes();
+static bool checkForRfCalibration();
 
 static void runChaplet();
 static void runRfCalibration();
@@ -77,10 +102,68 @@ static bool rfCtrlState;
 static unsigned long pressInstant; 
 static uint8_t appState;
 static struct RfOpCodes rfOpCodes;
+static CRGB leds[NUM_LEDS];
+static uint8_t currentBrightness;
+unsigned long dwTime;
+unsigned long upTime;
 
 /*****************************************************************************
  * Private Functions                                                         *
  *****************************************************************************/
+
+static void fadeLeds()
+{
+    uint8_t scale = currentBrightness;
+    while (scale) {
+        FastLED.setBrightness(--scale);
+        FastLED.show();
+        delay(dwTime);
+    }
+
+    scale = 0;
+    while (scale < currentBrightness) {
+        FastLED.setBrightness(++scale);
+        FastLED.show();
+        delay(upTime);
+    }
+}
+
+static void initLeds()
+{
+    FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
+    FastLED.setBrightness(BRIGHTNESS);
+    
+    for (int i = 0; i < NUM_LEDS; i++) {
+        leds[i] = CRGB::White;
+    }
+
+    FastLED.show();
+}
+
+
+static void saveRfCodes()
+{
+    size_t size = sizeof(rfOpCodes);
+    int addr = RF_OP_CODES_ADDR;
+    const uint8_t *p = (const uint8_t *)&rfOpCodes;
+
+    while (size--) {
+        EEPROM.update(addr++, *p++);
+    }
+}
+
+
+static void retrieveRfCodes()
+{
+    size_t size = sizeof(rfOpCodes);
+    int addr = RF_OP_CODES_ADDR;
+    uint8_t *p = (uint8_t *)&rfOpCodes; 
+
+    while (size--) {
+        *p++ = EEPROM.read(addr++);
+    }
+}
+
 
 static bool checkForRfCalibration()
 {
@@ -121,12 +204,21 @@ static void runChaplet()
 
 }
 
+
+static void runRfCalibration()
+{
+
+}
+
 /*****************************************************************************
  * Public Functions                                                          *
  *****************************************************************************/
 
-void setup() {
+void setup() {    
+    /* initialize serial port for debugging and logging purposes */
     
+    Serial.begin(9600);
+
     /* User LED to signal some activity and/or debugging */
 
     pinMode(LED_BUILTIN, OUTPUT);
@@ -135,10 +227,14 @@ void setup() {
 
     pinMode(RF_CTRL_CONFIG, INPUT);
 
-    /* initialize serial port for debugging and logging purposes */
-    
-    Serial.begin(9600);
-    
+    /* Retrieve the saved RF codes from NVS */
+
+    retrieveRfCodes();
+
+    /* Initialize LEDs */
+
+    initLeds();
+
     /* Enable Receiving signals of RF controller on INT line 0 (PIN D2) */
 
     mSwitch.enableReceive(0);
@@ -146,6 +242,11 @@ void setup() {
 
 void loop() {
     
+    if (Serial.available() > 0) {
+        String s = Serial.readStringUntil('\n');
+        Serial.println("Received: " + s);
+    }
+
     switch (appState) {
         case APP_STATE_CHAPLET:
             runChaplet();
