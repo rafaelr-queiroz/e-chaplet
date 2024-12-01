@@ -21,9 +21,13 @@
  *
  *****************************************************************************/
 
+
 /*****************************************************************************
  * Private Definitions                                                       *
  *****************************************************************************/
+
+#define MAX_BRIGHTNESS                            100                                     
+#define MAX_RGB_CODE                              255
 
 enum RequestState {
     REQ_STATE_IDLE,
@@ -47,6 +51,8 @@ enum RequestState {
     REQ_STATE_LED_FADE_UP_TIME,
     REQ_STATE_LED_FADE_DW_TIME,
 
+    REQ_STATE_LED_BRIGHTNESS_ON,
+    REQ_STATE_LED_BRIGHTNESS_IDLE,
 };
 
 
@@ -54,56 +60,108 @@ enum RequestState {
  * Private Function Prototypes                                               *
  *****************************************************************************/
 
+static bool retrieveCodeFromUi(const String &s, uint8_t &code,
+                               unsigned long lim);
+static inline void processReqIdle(const String &s);
 static inline void processRequest(const String &s);
 
 
-static inline void printMenu();
+static void printMenu();
 
 /*****************************************************************************
  * Private Data                                                              *
  *****************************************************************************/
 
-static const String rgbLabel = "Digite o código RGB para ";
-static const String redLabel = "vermelho";
-static const String greenLabel = "verde";
-static const String blueLabel = "azul";
-static const String rangeColorLabel = " (0 a 255)";
-static const String upTimeLabel = "Tempo de subida";
-static const String dwTimeLabel = "Tempo de descida";
-static const String timeUnit = " em milissegundos";
+static const char * const rgbLabel = "Digite o código RGB para ";
+static const char * const redLabel = "vermelho";
+static const char * const greenLabel = "verde";
+static const char * const blueLabel = "azul";
+static const char * const rangeColorLabel = " (0 a 255)";
+static const char * const upTimeLabel = "Tempo de subida";
+static const char * const dwTimeLabel = "Tempo de descida";
+static const char * const timeUnit = " em milissegundos";
+static const char * const brightnessLabel = "Percentual de brilho (0 a 100%)";
+static const char * const invalidValueLabel = "Valor inválido";
+static const char * const alteredValueLabel = "Valor alterado com sucesso!";
 
 static uint8_t requestState;
+static int currentNVSAddr;
+
+static CRGB rgbBuff;
+
 
 /*****************************************************************************
  * Private Functions                                                         *
  *****************************************************************************/
 
+static bool retrieveCodeFromUi(const String &s, uint8_t &code,
+                               unsigned long lim)
+{
+    unsigned long val;
+    char *eptr;
+    val = strtoul(s.begin(), &eptr, 10);
+    if (*eptr != '\0' || val > lim) {
+        /* User has input invalid data */
+
+        Serial.println(invalidValueLabel);
+        printMenu();
+
+        return false;
+    }
+
+    code = val;
+
+    return true;
+}
+
 static inline void processReqIdle(const String &s)
 {
     if (s.equals("1")) {
         requestState = REQ_STATE_RED_OUR_FATHER;
-        Serial.println(rgbLabel + redLabel + rangeColorLabel);
+        currentNVSAddr = RGB_OUR_FATHER_ADDR;
+        Serial.print(rgbLabel);
+        Serial.print(redLabel);
+        Serial.println(rangeColorLabel);
     }
     else if (s.equals("2")) {
         requestState = REQ_STATE_RED_HAIL_MARY;
-        Serial.println(rgbLabel + redLabel + rangeColorLabel);
+        currentNVSAddr = RGB_HAIL_MARY_ADDR;
+        Serial.print(rgbLabel);
+        Serial.print(redLabel);
+        Serial.println(rangeColorLabel);
     }
     else if (s.equals("3")) {
-        
+        requestState = REQ_STATE_LED_FADE_UP_TIME;
+        Serial.print(upTimeLabel);
+        Serial.println(timeUnit);
     }
     else if (s.equals("4")) {
         requestState = REQ_STATE_RED_FORWARD_BUTTON;
-        Serial.println(rgbLabel + redLabel + rangeColorLabel);
+        currentNVSAddr = RGB_FORWARD_BUTTON_ADDR;
+        Serial.print(rgbLabel);
+        Serial.print(redLabel);
+        Serial.println(rangeColorLabel);
     }
     else if (s.equals("5")) {
         requestState = REQ_STATE_RED_BACKWARD_BUTTON;
-        Serial.println(rgbLabel + redLabel + rangeColorLabel);
+        currentNVSAddr = RGB_BACKWARD_BUTTON_ADDR;
+        Serial.print(rgbLabel);
+        Serial.print(redLabel);
+        Serial.println(rangeColorLabel);
+    }
+    else if (s.equals("6")) {
+        requestState = REQ_STATE_LED_BRIGHTNESS_ON;
+        Serial.println(brightnessLabel);
+    }
+    else if (s.equals("7")) {
+        requestState = REQ_STATE_LED_BRIGHTNESS_IDLE;
+        Serial.println(brightnessLabel);
     }
     else {
         /* Invalid item */
 
         Serial.println("Opção inválida");
-        Serial.println();
+        printMenu();
     }
 }
 
@@ -114,22 +172,62 @@ static inline void processRequest(const String &s)
         case REQ_STATE_IDLE:
             processReqIdle(s);
             break;
+        
+        /* Cases regarding Our Father RGB */
+
         case REQ_STATE_RED_OUR_FATHER:
-            
+        case REQ_STATE_RED_HAIL_MARY:
+        case REQ_STATE_RED_FORWARD_BUTTON:
+        case REQ_STATE_RED_BACKWARD_BUTTON:
+            if (retrieveCodeFromUi(s, rgbBuff.red, MAX_RGB_CODE)) {
+                requestState++;
+                Serial.print(rgbLabel);
+                Serial.print(greenLabel);
+                Serial.println(rangeColorLabel);
+            }
             break;
+        case REQ_STATE_GREEN_OUR_FATHER:
+        case REQ_STATE_GREEN_HAIL_MARY:
+        case REQ_STATE_GREEN_FORWARD_BUTTON:
+        case REQ_STATE_GREEN_BACKWARD_BUTTON:
+            if (retrieveCodeFromUi(s, rgbBuff.green, MAX_RGB_CODE)) {
+                requestState++;
+                Serial.print(rgbLabel);
+                Serial.print(blueLabel);
+                Serial.println(rangeColorLabel);
+            }
+            break;
+        case REQ_STATE_BLUE_OUR_FATHER:
+        case REQ_STATE_BLUE_HAIL_MARY:
+        case REQ_STATE_BLUE_FORWARD_BUTTON:
+        case REQ_STATE_BLUE_BACKWARD_BUTTON:
+            if (retrieveCodeFromUi(s, rgbBuff.blue, MAX_RGB_CODE)) {
+                saveIntoNVS(currentNVSAddr, &rgbBuff, sizeof(rgbBuff));
+                retrieveDataFromNVS();
+                Serial.println(alteredValueLabel);
+                printMenu();
+            }
+            break;
+
+
+
         default:
             break;
     }
 }
 
 
-static inline void printMenu()
+static void printMenu()
 {
+    requestState = REQ_STATE_IDLE;
+    Serial.println();
     Serial.println("1 - Configurar RGB para Pai Nosso");
     Serial.println("2 - Configurar RGB para Ave Maria");
     Serial.println("3 - Configurar efeito de fading dos LED");
     Serial.println("4 - Configurar RGB para calibração botão avanço");
     Serial.println("5 - Configurar RGB para calibração botão recuo");
+    Serial.println("6 - Configurar brilho do LED");
+    Serial.println("7 - Configurar brilho do LED (stand-by)");
     Serial.println();
 }
 
@@ -143,8 +241,7 @@ void initUi()
     Serial.print("Terço eletrônico v1.0.0 - Rafael Rodrigues Queiroz ");
     Serial.println("(rafaelrq@gmail.com)");
     Serial.println();
-    Serial.println();
-
+    
     printMenu();
 }
 
@@ -173,11 +270,9 @@ void runUi()
 
         processRequest(s);
 
-        /* Clear buffer, print the menu again and return */
+        /* Clear buffer, and return */
         
         s = "";
-
-        printMenu();
 
         return;
     }

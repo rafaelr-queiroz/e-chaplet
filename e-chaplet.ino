@@ -50,6 +50,31 @@
 
 #define RF_OP_CODES_ADDR                            128
 
+#define BRIGHTNESS_ON_ADDR                          \
+(RF_OP_CODES_ADDR + sizeof(struct RfOpCodes))
+
+#define BRIGHTNESS_IDLE_ADDR                        \
+(BRIGHTNESS_ON_ADDR + sizeof(uint8_t))
+
+#define RGB_OUR_FATHER_ADDR                         \
+(BRIGHTNESS_IDLE_ADDR + sizeof(uint8_t))
+
+#define RGB_HAIL_MARY_ADDR                          \
+(RGB_OUR_FATHER_ADDR + sizeof(CRGB))
+
+#define RGB_FORWARD_BUTTON_ADDR                     \
+(RGB_HAIL_MARY_ADDR + sizeof(CRGB))
+
+#define RGB_BACKWARD_BUTTON_ADDR                    \
+(RGB_FORWARD_BUTTON_ADDR + sizeof(CRGB))
+
+#define UP_FADE_TIME_ADDR                           \
+(RGB_BACKWARD_BUTTON_ADDR + sizeof(CRGB))
+
+#define DOWN_FADE_TIME_ADDR                         \
+(UP_FADE_TIME_ADDR + sizeof(unsigned long))
+
+
 /* Pin used to drive the LED strip is PIN D6 */
 
 #define LED_PIN                                     6
@@ -88,19 +113,19 @@ struct RfOpCodes
  * Private Function Prototypes                                               *
  *****************************************************************************/
 
-static void fadeLeds(bool dw, bool up, uint8_t minBrightness,
-                     uint8_t maxBrightness);
+static void fadeUp(uint8_t minBrightness, uint8_t maxBrightness);
+static void fadeDown(uint8_t minBrightness, uint8_t maxBrightness);
+
 static inline void initLeds();
-
-static void saveRfCodes();
-static bool checkForRfCalibration();
-
+static inline bool checkForRfCalibration();
 static inline void runChaplet();
 static inline void runRfCalibration();
+static inline void initRcSwitch();
 
 /*****************************************************************************
  * Private Data                                                              *
  *****************************************************************************/
+
 
 static RCSwitch mSwitch;
 static bool rfCtrlState;
@@ -108,37 +133,46 @@ static unsigned long pressInstant;
 static uint8_t appState;
 static struct RfOpCodes rfOpCodes;
 static CRGB leds[NUM_LEDS];
-static uint8_t currentBrightness;
-unsigned long dwTime;
-unsigned long upTime;
+static uint8_t brightnessOn;
+static uint8_t brightnessIdle;
+static unsigned long dwTime;
+static unsigned long upTime;
+static CRGB ourFatherRGB;
+static CRGB hailMaryRGB;
+static CRGB forwardButtonRGB;
+static CRGB backwardButtonRGB;
 
 /*****************************************************************************
  * Private Functions                                                         *
  *****************************************************************************/
 
-static void fadeLeds(bool dw, bool up, uint8_t minBrightness,
-                     uint8_t maxBrightness)
+static void fadeUp(uint8_t minBrightness, uint8_t maxBrightness)
 {
-    uint8_t scale;
+    uint8_t scale = minBrightness;
+    FastLED.setBrightness(scale);
+    FastLED.show();
 
-    if (dw) {
-        scale = maxBrightness;
-        while (scale > minBrightness) {
-            FastLED.setBrightness(--scale);
-            FastLED.show();
-            delay(dwTime);
-        }
-    }
-
-    if (up) {
-        scale = minBrightness;
-        while (scale < maxBrightness) {
-            FastLED.setBrightness(++scale);
-            FastLED.show();
-            delay(upTime);
-        }
+    while (scale < maxBrightness) {
+        FastLED.setBrightness(++scale);
+        FastLED.show();
+        delay(upTime);
     }
 }
+
+
+static void fadeDown(uint8_t minBrightness, uint8_t maxBrightness)
+{
+    uint8_t scale = maxBrightness;
+    FastLED.setBrightness(scale);
+    FastLED.show();
+
+    while (scale > minBrightness) {
+        FastLED.setBrightness(--scale);
+        FastLED.show();
+        delay(dwTime);
+    }
+}
+
 
 static inline void initLeds()
 {
@@ -149,39 +183,18 @@ static inline void initLeds()
         leds[i] = CRGB::White;
     }
 
+    FastLED.show();
+
     for (int i = 2; i >= 0; i--) {
-        fadeLeds(true, true, 0, BRIGHTNESS);
+        fadeDown(0, BRIGHTNESS);
+        fadeUp(0, BRIGHTNESS);
     }
 
-    fadeLeds(true, false, 20, BRIGHTNESS);
+    fadeDown(brightnessIdle, BRIGHTNESS);
 }
 
 
-static void saveRfCodes()
-{
-    size_t size = sizeof(rfOpCodes);
-    int addr = RF_OP_CODES_ADDR;
-    const uint8_t *p = (const uint8_t *)&rfOpCodes;
-
-    while (size--) {
-        EEPROM.update(addr++, *p++);
-    }
-}
-
-
-static void retrieveRfCodes()
-{
-    size_t size = sizeof(rfOpCodes);
-    int addr = RF_OP_CODES_ADDR;
-    uint8_t *p = (uint8_t *)&rfOpCodes; 
-
-    while (size--) {
-        *p++ = EEPROM.read(addr++);
-    }
-}
-
-
-static bool checkForRfCalibration()
+static inline bool checkForRfCalibration()
 {
     if (rfCtrlState) {
         if (digitalRead(RF_CTRL_CONFIG) == HIGH) {
@@ -246,27 +259,19 @@ static inline void initRcSwitch()
  * Public Functions                                                          *
  *****************************************************************************/
 
-void setRGBOurFather(const CRGB &value)
+
+void retrieveDataFromNVS()
 {
+    brightnessOn = EEPROM.read(BRIGHTNESS_ON_ADDR);
+    brightnessIdle = EEPROM.read(BRIGHTNESS_IDLE_ADDR);
 
-}
+    getFromNVS(RGB_OUR_FATHER_ADDR, &ourFatherRGB, sizeof(CRGB));
+    getFromNVS(RGB_HAIL_MARY_ADDR, &hailMaryRGB, sizeof(CRGB));
+    getFromNVS(RGB_FORWARD_BUTTON_ADDR, &forwardButtonRGB, sizeof(CRGB));
+    getFromNVS(RGB_BACKWARD_BUTTON_ADDR, &backwardButtonRGB, sizeof(CRGB));
 
-
-void setRGBHailMary(const CRGB &value)
-{
-    
-}
-
-
-void setRGBForwardButton(const CRGB &value)
-{
-    
-}
-
-
-void setRGBBackwardButton(const CRGB &value)
-{
-    
+    getFromNVS(UP_FADE_TIME_ADDR, &upTime, sizeof(unsigned long));
+    getFromNVS(DOWN_FADE_TIME_ADDR, &dwTime, sizeof(unsigned long));
 }
 
 
@@ -282,7 +287,11 @@ void setup()
     
     /* Retrieve the saved RF codes from NVS */
 
-    retrieveRfCodes();
+    getFromNVS(RF_OP_CODES_ADDR, &rfOpCodes, sizeof(rfOpCodes));
+
+    /* Retrieve data from NVS that is changeable from UI */
+
+    retrieveDataFromNVS();
 
     /* Initialize LEDs */
 
