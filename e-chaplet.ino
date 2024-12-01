@@ -62,7 +62,7 @@
 
 #define BRIGHTNESS                                  64
 
-/* Used controller is WS2811 */
+/* Used LED controller is WS2811 */
 
 #define LED_TYPE                                    WS2811
 
@@ -87,17 +87,22 @@ struct RfOpCodes
 /*****************************************************************************
  * Private Function Prototypes                                               *
  *****************************************************************************/
+
+static void fadeLeds(bool dw, bool up, uint8_t minBrightness,
+                     uint8_t maxBrightness);
+static inline void initLeds();
+
 static void saveRfCodes();
 static bool checkForRfCalibration();
 
-static void runChaplet();
-static void runRfCalibration();
+static inline void runChaplet();
+static inline void runRfCalibration();
 
 /*****************************************************************************
  * Private Data                                                              *
  *****************************************************************************/
 
-static RCSwitch mSwitch = RCSwitch();
+static RCSwitch mSwitch;
 static bool rfCtrlState;
 static unsigned long pressInstant; 
 static uint8_t appState;
@@ -111,33 +116,44 @@ unsigned long upTime;
  * Private Functions                                                         *
  *****************************************************************************/
 
-static void fadeLeds()
+static void fadeLeds(bool dw, bool up, uint8_t minBrightness,
+                     uint8_t maxBrightness)
 {
-    uint8_t scale = currentBrightness;
-    while (scale) {
-        FastLED.setBrightness(--scale);
-        FastLED.show();
-        delay(dwTime);
+    uint8_t scale;
+
+    if (dw) {
+        scale = maxBrightness;
+        while (scale > minBrightness) {
+            FastLED.setBrightness(--scale);
+            FastLED.show();
+            delay(dwTime);
+        }
     }
 
-    scale = 0;
-    while (scale < currentBrightness) {
-        FastLED.setBrightness(++scale);
-        FastLED.show();
-        delay(upTime);
+    if (up) {
+        scale = minBrightness;
+        while (scale < maxBrightness) {
+            FastLED.setBrightness(++scale);
+            FastLED.show();
+            delay(upTime);
+        }
     }
 }
 
-static void initLeds()
+static inline void initLeds()
 {
     FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
     FastLED.setBrightness(BRIGHTNESS);
-    
+    FastLED.clearData();
     for (int i = 0; i < NUM_LEDS; i++) {
         leds[i] = CRGB::White;
     }
 
-    FastLED.show();
+    for (int i = 2; i >= 0; i--) {
+        fadeLeds(true, true, 0, BRIGHTNESS);
+    }
+
+    fadeLeds(true, false, 20, BRIGHTNESS);
 }
 
 
@@ -184,7 +200,7 @@ static bool checkForRfCalibration()
 }
 
 
-static void runChaplet()
+static inline void runChaplet()
 {
     if (checkForRfCalibration()) {
         /* We must put the system in RF calibration mode */
@@ -205,28 +221,65 @@ static void runChaplet()
 }
 
 
-static void runRfCalibration()
+static inline void runRfCalibration()
 {
 
+}
+
+
+static inline void initRcSwitch()
+{
+    /* Initialize pin to enable calibration of RF controller */
+
+    pinMode(RF_CTRL_CONFIG, INPUT);
+
+    /* Instantiate RCSwitch class */
+
+    mSwitch = RCSwitch();
+
+    /* Enable Receiving signals of RF controller on INT line 0 (PIN D2) */
+
+    mSwitch.enableReceive(INT0);
 }
 
 /*****************************************************************************
  * Public Functions                                                          *
  *****************************************************************************/
 
-void setup() {    
+void setRGBOurFather(const CRGB &value)
+{
+
+}
+
+
+void setRGBHailMary(const CRGB &value)
+{
+    
+}
+
+
+void setRGBForwardButton(const CRGB &value)
+{
+    
+}
+
+
+void setRGBBackwardButton(const CRGB &value)
+{
+    
+}
+
+
+void setup()
+{    
     /* initialize serial port for debugging and logging purposes */
     
-    Serial.begin(9600);
+    Serial.begin(57600);
 
     /* User LED to signal some activity and/or debugging */
 
     pinMode(LED_BUILTIN, OUTPUT);
     
-    /* Initialize pin to enable calibration of RF controller */
-
-    pinMode(RF_CTRL_CONFIG, INPUT);
-
     /* Retrieve the saved RF codes from NVS */
 
     retrieveRfCodes();
@@ -235,17 +288,18 @@ void setup() {
 
     initLeds();
 
-    /* Enable Receiving signals of RF controller on INT line 0 (PIN D2) */
+    /* Initialize RF controller interface */
+    
+    initRcSwitch();
 
-    mSwitch.enableReceive(0);
+    /* Initialize the User Interface (Terminal on USB) */
+
+    initUi();
 }
 
-void loop() {
-    
-    if (Serial.available() > 0) {
-        String s = Serial.readStringUntil('\n');
-        Serial.println("Received: " + s);
-    }
+void loop()
+{
+    runUi();
 
     switch (appState) {
         case APP_STATE_CHAPLET:
