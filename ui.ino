@@ -26,7 +26,7 @@
  * Private Definitions                                                       *
  *****************************************************************************/
 
-#define MAX_BRIGHTNESS                            100                                     
+                                 
 #define MAX_RGB_CODE                              255
 
 enum RequestState {
@@ -47,12 +47,6 @@ enum RequestState {
     REQ_STATE_RED_BACKWARD_BUTTON,
     REQ_STATE_GREEN_BACKWARD_BUTTON,
     REQ_STATE_BLUE_BACKWARD_BUTTON,
-
-    REQ_STATE_LED_FADE_UP_TIME,
-    REQ_STATE_LED_FADE_DW_TIME,
-
-    REQ_STATE_LED_BRIGHTNESS_ON,
-    REQ_STATE_LED_BRIGHTNESS_IDLE,
 };
 
 
@@ -77,10 +71,6 @@ static const char * const redLabel = "vermelho";
 static const char * const greenLabel = "verde";
 static const char * const blueLabel = "azul";
 static const char * const rangeColorLabel = " (0 a 255)";
-static const char * const upTimeLabel = "Tempo de subida";
-static const char * const dwTimeLabel = "Tempo de descida";
-static const char * const timeUnit = " em milissegundos";
-static const char * const brightnessLabel = "Percentual de brilho (0 a 100%)";
 static const char * const invalidValueLabel = "Valor inválido";
 static const char * const alteredValueLabel = "Valor alterado com sucesso!";
 
@@ -131,31 +121,18 @@ static inline void processReqIdle(const String &s)
         Serial.println(rangeColorLabel);
     }
     else if (s.equals("3")) {
-        requestState = REQ_STATE_LED_FADE_UP_TIME;
-        Serial.print(upTimeLabel);
-        Serial.println(timeUnit);
-    }
-    else if (s.equals("4")) {
         requestState = REQ_STATE_RED_FORWARD_BUTTON;
         currentNVSAddr = RGB_FORWARD_BUTTON_ADDR;
         Serial.print(rgbLabel);
         Serial.print(redLabel);
         Serial.println(rangeColorLabel);
     }
-    else if (s.equals("5")) {
+    else if (s.equals("4")) {
         requestState = REQ_STATE_RED_BACKWARD_BUTTON;
         currentNVSAddr = RGB_BACKWARD_BUTTON_ADDR;
         Serial.print(rgbLabel);
         Serial.print(redLabel);
         Serial.println(rangeColorLabel);
-    }
-    else if (s.equals("6")) {
-        requestState = REQ_STATE_LED_BRIGHTNESS_ON;
-        Serial.println(brightnessLabel);
-    }
-    else if (s.equals("7")) {
-        requestState = REQ_STATE_LED_BRIGHTNESS_IDLE;
-        Serial.println(brightnessLabel);
     }
     else {
         /* Invalid item */
@@ -223,11 +200,8 @@ static void printMenu()
     Serial.println();
     Serial.println("1 - Configurar RGB para Pai Nosso");
     Serial.println("2 - Configurar RGB para Ave Maria");
-    Serial.println("3 - Configurar efeito de fading dos LED");
-    Serial.println("4 - Configurar RGB para calibração botão avanço");
-    Serial.println("5 - Configurar RGB para calibração botão recuo");
-    Serial.println("6 - Configurar brilho do LED");
-    Serial.println("7 - Configurar brilho do LED (stand-by)");
+    Serial.println("3 - Configurar RGB para calibração botão avanço");
+    Serial.println("4 - Configurar RGB para calibração botão recuo");
     Serial.println();
 }
 

@@ -44,20 +44,15 @@
  * controller calibration
  */
 
-#define RF_CONFIG_TIMEOUT_MS                        5000UL
+#define RF_CONFIG_TIMEOUT_MS                        3000UL
 
 /* Address to store RF OP codes in EEPROM */
 
 #define RF_OP_CODES_ADDR                            128
 
-#define BRIGHTNESS_ON_ADDR                          \
-(RF_OP_CODES_ADDR + sizeof(struct RfOpCodes))
-
-#define BRIGHTNESS_IDLE_ADDR                        \
-(BRIGHTNESS_ON_ADDR + sizeof(uint8_t))
 
 #define RGB_OUR_FATHER_ADDR                         \
-(BRIGHTNESS_IDLE_ADDR + sizeof(uint8_t))
+(RF_OP_CODES_ADDR + NUM_OP_CODES * sizeof(unsigned long))
 
 #define RGB_HAIL_MARY_ADDR                          \
 (RGB_OUR_FATHER_ADDR + sizeof(CRGB))
@@ -68,12 +63,6 @@
 #define RGB_BACKWARD_BUTTON_ADDR                    \
 (RGB_FORWARD_BUTTON_ADDR + sizeof(CRGB))
 
-#define UP_FADE_TIME_ADDR                           \
-(RGB_BACKWARD_BUTTON_ADDR + sizeof(CRGB))
-
-#define DOWN_FADE_TIME_ADDR                         \
-(UP_FADE_TIME_ADDR + sizeof(unsigned long))
-
 
 /* Pin used to drive the LED strip is PIN D6 */
 
@@ -83,9 +72,15 @@
 
 #define NUM_LEDS                                    61
 
-/* Initial brightness scale */
+#define NUM_OP_CODES                                2
+
+/* Brightness LED on */
 
 #define BRIGHTNESS                                  64
+
+/* Brightness LED off */
+
+#define BRIGHTNESS_IDLE                             5
 
 /* Used LED controller is WS2811 */
 
@@ -102,17 +97,12 @@ enum AppState {
 };
 
 
-struct RfOpCodes
-{
-    unsigned long forward;
-    unsigned long backward;
-};
-
 
 /*****************************************************************************
  * Private Function Prototypes                                               *
  *****************************************************************************/
 
+static void setAllLEDs(const CRGB &rgb);
 static void fadeUp(uint8_t minBrightness, uint8_t maxBrightness);
 static void fadeDown(uint8_t minBrightness, uint8_t maxBrightness);
 
@@ -131,12 +121,10 @@ static RCSwitch mSwitch;
 static bool rfCtrlState;
 static unsigned long pressInstant; 
 static uint8_t appState;
-static struct RfOpCodes rfOpCodes;
+static unsigned long rfOpCodes[NUM_OP_CODES];
+static uint8_t ledIdx;
+static uint8_t opCodeIdx;
 static CRGB leds[NUM_LEDS];
-static uint8_t brightnessOn;
-static uint8_t brightnessIdle;
-static unsigned long dwTime;
-static unsigned long upTime;
 static CRGB ourFatherRGB;
 static CRGB hailMaryRGB;
 static CRGB forwardButtonRGB;
@@ -145,6 +133,15 @@ static CRGB backwardButtonRGB;
 /*****************************************************************************
  * Private Functions                                                         *
  *****************************************************************************/
+
+static void setAllLEDs(const CRGB &rgb)
+{
+    for (int i = 0; i < NUM_LEDS; i++) {
+        leds[i] = rgb;
+    }
+
+    FastLED.show();
+}
 
 static void fadeUp(uint8_t minBrightness, uint8_t maxBrightness)
 {
@@ -155,7 +152,7 @@ static void fadeUp(uint8_t minBrightness, uint8_t maxBrightness)
     while (scale < maxBrightness) {
         FastLED.setBrightness(++scale);
         FastLED.show();
-        delay(upTime);
+        delay(5);
     }
 }
 
@@ -169,7 +166,7 @@ static void fadeDown(uint8_t minBrightness, uint8_t maxBrightness)
     while (scale > minBrightness) {
         FastLED.setBrightness(--scale);
         FastLED.show();
-        delay(dwTime);
+        delay(10);
     }
 }
 
@@ -179,18 +176,15 @@ static inline void initLeds()
     FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
     FastLED.setBrightness(BRIGHTNESS);
     FastLED.clearData();
-    for (int i = 0; i < NUM_LEDS; i++) {
-        leds[i] = CRGB::White;
-    }
-
-    FastLED.show();
+    
+    setAllLEDs(CRGB::White);
 
     for (int i = 2; i >= 0; i--) {
         fadeDown(0, BRIGHTNESS);
         fadeUp(0, BRIGHTNESS);
     }
 
-    fadeDown(brightnessIdle, BRIGHTNESS);
+    fadeDown(BRIGHTNESS_IDLE, BRIGHTNESS);
 }
 
 
@@ -201,6 +195,7 @@ static inline bool checkForRfCalibration()
             rfCtrlState = false;
         }
         else if (millis() - pressInstant >= RF_CONFIG_TIMEOUT_MS) {
+            rfCtrlState = false;
             return true;
         }
     }
@@ -213,12 +208,26 @@ static inline bool checkForRfCalibration()
 }
 
 
+static inline void forwardLED()
+{
+    
+}
+
+
+static inline void backwardLED()
+{
+
+}
+
+
 static inline void runChaplet()
 {
     if (checkForRfCalibration()) {
         /* We must put the system in RF calibration mode */
 
         appState = APP_STATE_RF_CALIBRATION;
+        FastLED.setBrightness(BRIGHTNESS);
+        setAllLEDs(forwardButtonRGB);
 
         return;
     }
@@ -228,6 +237,13 @@ static inline void runChaplet()
     if (mSwitch.available()) {
         /* Yes, we do */
 
+        if (mSwitch.getReceivedValue() == rfOpCodes[0]) {
+            forwardLED();
+        }
+        else if (mSwitch.getReceivedValue() == rfOpCodes[1]) {
+            backwardLED();
+        }
+
         mSwitch.resetAvailable();
     }
 
@@ -236,7 +252,29 @@ static inline void runChaplet()
 
 static inline void runRfCalibration()
 {
+    if (mSwitch.available()) {
+        rfOpCodes[opCodeIdx++] = mSwitch.getReceivedValue();
 
+        mSwitch.resetAvailable();
+
+        for (int i = 1; i >= 0; i--) {
+            fadeDown(0, BRIGHTNESS);
+            fadeUp(0, BRIGHTNESS);
+        }
+        
+
+        if (opCodeIdx >= NUM_OP_CODES) {
+            FastLED.setBrightness(BRIGHTNESS_IDLE);
+            setAllLEDs(CRGB::White);
+            
+            opCodeIdx = 0;
+            saveIntoNVS(RF_OP_CODES_ADDR, rfOpCodes, sizeof(rfOpCodes));
+            appState = APP_STATE_CHAPLET;
+            return;
+        }
+        
+        setAllLEDs(backwardButtonRGB);
+    }
 }
 
 
@@ -262,16 +300,10 @@ static inline void initRcSwitch()
 
 void retrieveDataFromNVS()
 {
-    brightnessOn = EEPROM.read(BRIGHTNESS_ON_ADDR);
-    brightnessIdle = EEPROM.read(BRIGHTNESS_IDLE_ADDR);
-
     getFromNVS(RGB_OUR_FATHER_ADDR, &ourFatherRGB, sizeof(CRGB));
     getFromNVS(RGB_HAIL_MARY_ADDR, &hailMaryRGB, sizeof(CRGB));
     getFromNVS(RGB_FORWARD_BUTTON_ADDR, &forwardButtonRGB, sizeof(CRGB));
     getFromNVS(RGB_BACKWARD_BUTTON_ADDR, &backwardButtonRGB, sizeof(CRGB));
-
-    getFromNVS(UP_FADE_TIME_ADDR, &upTime, sizeof(unsigned long));
-    getFromNVS(DOWN_FADE_TIME_ADDR, &dwTime, sizeof(unsigned long));
 }
 
 
@@ -287,7 +319,7 @@ void setup()
     
     /* Retrieve the saved RF codes from NVS */
 
-    getFromNVS(RF_OP_CODES_ADDR, &rfOpCodes, sizeof(rfOpCodes));
+    getFromNVS(RF_OP_CODES_ADDR, rfOpCodes, sizeof(rfOpCodes));
 
     /* Retrieve data from NVS that is changeable from UI */
 
