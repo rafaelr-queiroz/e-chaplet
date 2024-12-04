@@ -54,13 +54,6 @@ enum RequestState {
  * Private Function Prototypes                                               *
  *****************************************************************************/
 
-static bool retrieveCodeFromUi(const String &s, uint8_t &code,
-                               unsigned long lim);
-static inline void processReqIdle(const String &s);
-static inline void processRequest(const String &s);
-
-
-static void printMenu();
 
 /*****************************************************************************
  * Private Data                                                              *

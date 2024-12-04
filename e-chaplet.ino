@@ -74,22 +74,26 @@
 
 #define NUM_OP_CODES                                2
 
+#define MIN_BRIGHTNESS                              1
+
 /* Brightness LED on */
 
-#define BRIGHTNESS                                  64
+#define BRIGHTNESS                                  150
 
 /* Brightness LED off */
 
-#define BRIGHTNESS_IDLE                             5
+#define BRIGHTNESS_IDLE                             20
 
 /* Used LED controller is WS2811 */
 
-#define LED_TYPE                                    WS2811
+#define LED_TYPE                                    WS2812B
 
 /* The order of the RGB color code used by the controller */
 
 #define COLOR_ORDER                                 GRB
 
+
+#define RF_WAIT_TIMEOUT                             1000
 
 enum AppState {
     APP_STATE_CHAPLET,
@@ -98,19 +102,6 @@ enum AppState {
 
 
 
-/*****************************************************************************
- * Private Function Prototypes                                               *
- *****************************************************************************/
-
-static void setAllLEDs(const CRGB &rgb);
-static void fadeUp(uint8_t minBrightness, uint8_t maxBrightness);
-static void fadeDown(uint8_t minBrightness, uint8_t maxBrightness);
-
-static inline void initLeds();
-static inline bool checkForRfCalibration();
-static inline void runChaplet();
-static inline void runRfCalibration();
-static inline void initRcSwitch();
 
 /*****************************************************************************
  * Private Data                                                              *
@@ -119,6 +110,8 @@ static inline void initRcSwitch();
 
 static RCSwitch mSwitch;
 static bool rfCtrlState;
+static bool waitForRf;
+static unsigned long rfInstant;
 static unsigned long pressInstant; 
 static uint8_t appState;
 static unsigned long rfOpCodes[NUM_OP_CODES];
@@ -134,6 +127,42 @@ static CRGB backwardButtonRGB;
  * Private Functions                                                         *
  *****************************************************************************/
 
+
+static void fadeUpLED(uint8_t idx, const CRGB &rgb)
+{
+    const int steps = 16;
+    int fadeAmount = -(256 / steps);
+    int brightness = 0;
+
+    for (int j = 0; j < steps; j++)
+    {
+        leds[idx] = rgb;
+        brightness = brightness + fadeAmount;
+        leds[idx].fadeLightBy(brightness);
+        FastLED.show();
+        delay(70);
+    }    
+}
+
+
+static void fadeDownLED(uint8_t idx, const CRGB &rgb)
+{
+    const int steps = 16;
+    int fadeAmount = (256 / steps);
+    int brightness = 255;
+
+    for (int j = 0; j < steps - 2; j++)
+    {
+        leds[idx] = rgb;
+        brightness = brightness + fadeAmount;
+        leds[idx].fadeLightBy(brightness);
+        FastLED.show();
+        delay(70);
+    }
+}
+
+
+
 static void setAllLEDs(const CRGB &rgb)
 {
     for (int i = 0; i < NUM_LEDS; i++) {
@@ -143,16 +172,25 @@ static void setAllLEDs(const CRGB &rgb)
     FastLED.show();
 }
 
+
+
+static void setLEDsBrightness(uint8_t max)
+{
+    for (int i = 0; i < NUM_LEDS; i++) {
+        leds[i].maximizeBrightness(max);
+    }
+}
+
 static void fadeUp(uint8_t minBrightness, uint8_t maxBrightness)
 {
     uint8_t scale = minBrightness;
-    FastLED.setBrightness(scale);
+    setLEDsBrightness(scale);
     FastLED.show();
 
     while (scale < maxBrightness) {
-        FastLED.setBrightness(++scale);
+        setLEDsBrightness(++scale);
         FastLED.show();
-        delay(5);
+        delay(2);
     }
 }
 
@@ -160,13 +198,13 @@ static void fadeUp(uint8_t minBrightness, uint8_t maxBrightness)
 static void fadeDown(uint8_t minBrightness, uint8_t maxBrightness)
 {
     uint8_t scale = maxBrightness;
-    FastLED.setBrightness(scale);
+    setLEDsBrightness(scale);
     FastLED.show();
 
     while (scale > minBrightness) {
-        FastLED.setBrightness(--scale);
+        setLEDsBrightness(--scale);
         FastLED.show();
-        delay(10);
+        delay(5);
     }
 }
 
@@ -180,8 +218,8 @@ static inline void initLeds()
     setAllLEDs(CRGB::White);
 
     for (int i = 2; i >= 0; i--) {
-        fadeDown(0, BRIGHTNESS);
-        fadeUp(0, BRIGHTNESS);
+        fadeDown(MIN_BRIGHTNESS, BRIGHTNESS);
+        fadeUp(MIN_BRIGHTNESS, BRIGHTNESS);
     }
 
     fadeDown(BRIGHTNESS_IDLE, BRIGHTNESS);
@@ -210,13 +248,52 @@ static inline bool checkForRfCalibration()
 
 static inline void forwardLED()
 {
-    
+    switch (ledIdx) {
+        
+        case 0:
+        case 60:
+            fadeUpLED(ledIdx++, CRGB::Magenta);
+            break;
+        /* Our Father cases */
+        
+        case 1:
+        case 5:
+        case 16:
+        case 27:
+        case 38:
+        case 49:
+            fadeUpLED(ledIdx++, ourFatherRGB);
+            break;
+
+        /* Hail Mary cases */
+
+        case 2 ... 4:
+        case 6 ... 15:
+        case 17 ... 26:
+        case 28 ... 37:
+        case 39 ... 48:
+        case 50 ... 59:
+            fadeUpLED(ledIdx++, hailMaryRGB);
+            break;
+        
+        default:
+
+            setAllLEDs(CRGB::White);
+            fadeDown(BRIGHTNESS_IDLE, BRIGHTNESS);
+
+            break;
+    }
 }
 
 
 static inline void backwardLED()
 {
+    if (!ledIdx) {
+        return;
+    }
 
+    
+    fadeDownLED(--ledIdx, CRGB::White);
 }
 
 
@@ -226,8 +303,16 @@ static inline void runChaplet()
         /* We must put the system in RF calibration mode */
 
         appState = APP_STATE_RF_CALIBRATION;
-        FastLED.setBrightness(BRIGHTNESS);
+        
         setAllLEDs(forwardButtonRGB);
+
+        return;
+    }
+
+    if (waitForRf) {
+        if (millis() - rfInstant >= RF_WAIT_TIMEOUT) {
+            waitForRf = false;
+        }
 
         return;
     }
@@ -236,6 +321,10 @@ static inline void runChaplet()
 
     if (mSwitch.available()) {
         /* Yes, we do */
+
+        rfInstant = millis();
+        waitForRf = true;
+
 
         if (mSwitch.getReceivedValue() == rfOpCodes[0]) {
             forwardLED();
@@ -258,15 +347,16 @@ static inline void runRfCalibration()
         mSwitch.resetAvailable();
 
         for (int i = 1; i >= 0; i--) {
-            fadeDown(0, BRIGHTNESS);
-            fadeUp(0, BRIGHTNESS);
+            fadeDown(MIN_BRIGHTNESS, BRIGHTNESS);
+            fadeUp(MIN_BRIGHTNESS, BRIGHTNESS);
         }
         
 
         if (opCodeIdx >= NUM_OP_CODES) {
-            FastLED.setBrightness(BRIGHTNESS_IDLE);
-            setAllLEDs(CRGB::White);
             
+            setAllLEDs(CRGB::White);
+            fadeDown(BRIGHTNESS_IDLE, BRIGHTNESS);
+
             opCodeIdx = 0;
             saveIntoNVS(RF_OP_CODES_ADDR, rfOpCodes, sizeof(rfOpCodes));
             appState = APP_STATE_CHAPLET;
