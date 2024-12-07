@@ -252,7 +252,7 @@ static inline void forwardLED()
         
         case 0:
         case 60:
-            fadeUpLED(ledIdx++, CRGB::Magenta);
+            fadeUpLED(ledIdx++, CRGB::Blue);
             break;
         /* Our Father cases */
         
@@ -277,7 +277,8 @@ static inline void forwardLED()
             break;
         
         default:
-
+            
+            ledIdx = 0;
             setAllLEDs(CRGB::White);
             fadeDown(BRIGHTNESS_IDLE, BRIGHTNESS);
 
@@ -358,6 +359,7 @@ static inline void runRfCalibration()
             fadeDown(BRIGHTNESS_IDLE, BRIGHTNESS);
 
             opCodeIdx = 0;
+            ledIdx = 0;
             saveIntoNVS(RF_OP_CODES_ADDR, rfOpCodes, sizeof(rfOpCodes));
             appState = APP_STATE_CHAPLET;
             return;
